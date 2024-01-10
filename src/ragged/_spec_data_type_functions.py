@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ._spec_array_object import array
+from ._spec_array_object import _box, _unbox, array
 from ._typing import Dtype
 
 _type = type
@@ -23,11 +23,7 @@ def astype(x: array, dtype: Dtype, /, *, copy: bool = True) -> array:
     Args:
         x: Array to cast.
         dtype: Desired data type.
-        copy: Specifies whether to copy an array when the specified `dtype`
-            matches the data type of the input array `x`. If `True`, a newly
-            allocated array is always returned. If `False` and the specified
-            `dtype` matches the data type of the input array, the input array
-            is returned; otherwise, a newly allocated array is returned.
+        copy: Ignored because `ragged.array` data buffers are immutable.
 
     Returns:
         An array having the specified data type. The returned array has the
@@ -36,10 +32,9 @@ def astype(x: array, dtype: Dtype, /, *, copy: bool = True) -> array:
     https://data-apis.org/array-api/latest/API_specification/generated/array_api.astype.html
     """
 
-    x  # noqa: B018, pylint: disable=W0104
-    dtype  # noqa: B018, pylint: disable=W0104
-    copy  # noqa: B018, pylint: disable=W0104
-    raise NotImplementedError("TODO 50")  # noqa: EM101
+    copy  # noqa: B018, argument is ignored, pylint: disable=W0104
+
+    return _box(type(x), *_unbox(x), dtype=dtype)
 
 
 def can_cast(from_: Dtype | array, to: Dtype, /) -> bool:

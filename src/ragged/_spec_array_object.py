@@ -216,6 +216,14 @@ class array:  # pylint: disable=C0103
             elif isinstance(self._impl, np.ndarray) and device == "cuda":
                 cp = _import.cupy()
                 self._impl = cp.array(self._impl)
+            self._device = device
+        else:
+            if isinstance(self._impl, ak.Array):
+                self._device = ak.backend(self._impl)
+            elif isinstance(self._impl, np.ndarray):
+                self._device = "cpu"
+            else:
+                self._device = "cuda"
 
         if copy is not None:
             raise NotImplementedError("TODO 1")  # noqa: EM101
@@ -1101,6 +1109,32 @@ class array:  # pylint: disable=C0103
     __rrshift__ = __rshift__
 
 
+def _is_shared(
+    x1: array | ak.Array | SupportsDLPack, x2: array | ak.Array | SupportsDLPack
+) -> bool:
+    x1_buf = x1._impl if isinstance(x1, array) else x1  # pylint: disable=W0212
+    x2_buf = x2._impl if isinstance(x2, array) else x2  # pylint: disable=W0212
+
+    if isinstance(x1_buf, ak.Array):
+        x1_buf = x1_buf.layout
+        while not isinstance(x1_buf, NumpyArray):
+            x1_buf = x1_buf.content
+        x1_buf = x1_buf.data
+
+    if isinstance(x2_buf, ak.Array):
+        x2_buf = x2_buf.layout
+        while not isinstance(x2_buf, NumpyArray):
+            x2_buf = x2_buf.content
+        x2_buf = x2_buf.data
+
+    while x1_buf.base is not None:  # type: ignore[union-attr]
+        x1_buf = x1_buf.base  # type: ignore[union-attr]
+    while x2_buf.base is not None:  # type: ignore[union-attr]
+        x2_buf = x2_buf.base  # type: ignore[union-attr]
+
+    return x1_buf is x2_buf
+
+
 def _unbox(*inputs: array) -> tuple[ak.Array | SupportsDLPack, ...]:
     if len(inputs) > 1 and any(type(inputs[0]) is not type(x) for x in inputs):
         types = "\n".join(f"{type(x).__module__}.{type(x).__name__}" for x in inputs)
@@ -1115,6 +1149,7 @@ def _box(
     output: ak.Array | np.number | SupportsDLPack,
     *,
     dtype: None | Dtype = None,
+    device: None | Device = None,
 ) -> array:
     if isinstance(output, ak.Array):
         impl = output
@@ -1123,7 +1158,11 @@ def _box(
             impl = ak.values_astype(impl, dtype)
         else:
             dtype = dtype_observed
-        device = ak.backend(output)
+        device_observed = ak.backend(output)
+        if device is None:
+            device = device_observed
+        elif device != device_observed:
+            output = ak.to_backend(output, device)
 
     elif isinstance(output, np.number):
         impl = np.array(output)
@@ -1133,7 +1172,12 @@ def _box(
             impl = impl.astype(dtype)
         else:
             dtype = dtype_observed
-        device = "cpu"
+        device_observed = "cpu"
+        if device is None:
+            device = device_observed
+        elif device != device_observed:
+            cp = _import.cupy()
+            output = cp.array(output)
 
     else:
         impl = output
@@ -1143,7 +1187,16 @@ def _box(
             impl = impl.astype(dtype)
         else:
             dtype = dtype_observed
-        device = "cpu" if isinstance(output, np.ndarray) else "cuda"
+        device_observed = "cpu" if isinstance(output, np.ndarray) else "cuda"
+        if device is None:
+            device = device_observed
+        elif device != device_observed:
+            if device == "cpu":
+                output = np.array(output)
+            else:
+                cp = _import.cupy()
+                output = cp.array(output)
+
         if shape != ():
             impl = ak.Array(impl)
 

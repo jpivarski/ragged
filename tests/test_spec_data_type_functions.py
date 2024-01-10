@@ -6,9 +6,26 @@ https://data-apis.org/array-api/latest/API_specification/data_type_functions.htm
 
 from __future__ import annotations
 
+from typing import Any
+
+import awkward as ak
 import numpy as np
+import pytest
 
 import ragged
+
+devices = ["cpu"]
+try:
+    import cupy as cp
+
+    devices.append("cuda")
+except ModuleNotFoundError:
+    cp = None
+
+
+def first(x: ragged.array) -> Any:
+    out = ak.flatten(x._impl, axis=None)[0] if x.shape != () else x._impl
+    return np.asarray(out.item(), dtype=x.dtype)
 
 
 def test_existence():
@@ -18,6 +35,16 @@ def test_existence():
     assert ragged.iinfo is not None
     assert ragged.isdtype is not None
     assert ragged.result_type is not None
+
+
+@pytest.mark.parametrize("device", devices)
+@pytest.mark.parametrize("dt", ["float64", np.float64, np.dtype(np.float64)])
+def test_astype(device, x_int, dt):
+    x = x_int.to_device(device)
+    y = ragged.astype(x, dt)
+    assert first(y) == first(x)
+    assert y.dtype == np.dtype(np.float64)
+    assert y.device == x.device
 
 
 def test_can_cast():
